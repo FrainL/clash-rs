@@ -70,8 +70,8 @@ impl From<NetworkInterface> for OutboundInterface {
                         }
                     }
                     network_interface::Addr::V6(addr) => {
-                        let is_usable_v6 =
-                            addr.ip.is_unique_local() || is_global_unicast_v6(addr.ip);
+                        let is_usable_v6 = addr.ip.is_unique_local()
+                            || is_global_unicast_v6(addr.ip);
                         if is_usable_v6 {
                             v6 = Some(*addr);
                         }
