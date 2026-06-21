@@ -1,6 +1,3 @@
-#![feature(ip)]
-#![feature(duration_millis_float)]
-
 #[cfg(feature = "tun")]
 use crate::proxy::tun;
 use crate::{
@@ -41,6 +38,7 @@ use tracing::{debug, error, info, warn};
 
 pub mod app;
 pub mod config;
+pub mod embedded_outbound;
 
 mod common;
 mod proxy;

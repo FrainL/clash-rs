@@ -219,9 +219,11 @@ impl ProxyManager {
         if history.is_empty() {
             None
         } else {
-            let avg_rtt =
-                history.iter().map(|x| x.delay.as_millis_f64()).sum::<f64>()
-                    / history.len() as f64;
+            let avg_rtt = history
+                .iter()
+                .map(|x| x.delay.as_secs_f64() * 1000.0)
+                .sum::<f64>()
+                / history.len() as f64;
             Some(avg_rtt)
         }
     }

@@ -253,7 +253,7 @@ impl Handler {
                 .proxy_manager
                 .last_delay(&name)
                 .await
-                .map(|d| d.as_millis_f64())
+                .map(|d| d.as_secs_f64() * 1000.0)
                 .unwrap_or(9999.0);
             let packet_loss = self
                 .proxy_manager

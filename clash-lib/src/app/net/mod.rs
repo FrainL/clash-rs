@@ -70,7 +70,9 @@ impl From<NetworkInterface> for OutboundInterface {
                         }
                     }
                     network_interface::Addr::V6(addr) => {
-                        if addr.ip.is_unique_local() || addr.ip.is_global() {
+                        let is_usable_v6 =
+                            addr.ip.is_unique_local() || is_global_unicast_v6(addr.ip);
+                        if is_usable_v6 {
                             v6 = Some(*addr);
                         }
                     }
@@ -163,9 +165,11 @@ pub fn get_outbound_interface() -> Option<OutboundInterface> {
             (Some(_), None) => return std::cmp::Ordering::Less,
             (None, Some(_)) => return std::cmp::Ordering::Greater,
             (Some(left), Some(right)) => {
-                if left.is_unicast_global() && !right.is_unicast_global() {
+                let left_global = is_global_unicast_v6(left);
+                let right_global = is_global_unicast_v6(right);
+                if left_global && !right_global {
                     return std::cmp::Ordering::Less;
-                } else if !left.is_unicast_global() && right.is_unicast_global() {
+                } else if !left_global && right_global {
                     return std::cmp::Ordering::Greater;
                 }
             }
@@ -190,6 +194,14 @@ pub fn get_outbound_interface() -> Option<OutboundInterface> {
     );
 
     all_outbounds.into_iter().next()
+}
+
+fn is_global_unicast_v6(addr: Ipv6Addr) -> bool {
+    !addr.is_unspecified()
+        && !addr.is_loopback()
+        && !addr.is_multicast()
+        && !addr.is_unique_local()
+        && !addr.is_unicast_link_local()
 }
 
 /// Represents a network interface in configuration.
