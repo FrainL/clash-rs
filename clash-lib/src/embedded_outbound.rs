@@ -46,11 +46,36 @@ pub struct EmbeddedHttpRequest {
     pub timeout: Option<Duration>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddedHttpResponse {
     pub status: u16,
     pub content_length: Option<u64>,
-    pub body: Vec<u8>,
+    pub body: EmbeddedHttpBody,
+}
+
+pub struct EmbeddedHttpBody {
+    body: Incoming,
+}
+
+impl EmbeddedHttpBody {
+    pub async fn next_chunk(&mut self) -> io::Result<Option<Vec<u8>>> {
+        loop {
+            let Some(frame) = self
+                .body
+                .frame()
+                .await
+                .transpose()
+                .map_err(io::Error::other)?
+            else {
+                return Ok(None);
+            };
+            let Ok(data) = frame.into_data() else {
+                continue;
+            };
+            if !data.is_empty() {
+                return Ok(Some(data.to_vec()));
+            }
+        }
+    }
 }
 
 impl EmbeddedOutbound {
@@ -117,11 +142,12 @@ impl EmbeddedOutbound {
         let content_length = response_content_length(
             response.headers().get(http::header::CONTENT_LENGTH),
         );
-        let body = collect_body(response.into_body()).await?;
         Ok(EmbeddedHttpResponse {
             status,
             content_length,
-            body,
+            body: EmbeddedHttpBody {
+                body: response.into_body(),
+            },
         })
     }
 
@@ -163,15 +189,6 @@ fn parse_clash_yaml_entry(entry: &str) -> Result<OutboundProxyProtocol> {
 
 fn response_content_length(value: Option<&http::HeaderValue>) -> Option<u64> {
     value?.to_str().ok()?.parse().ok()
-}
-
-async fn collect_body(body: Incoming) -> io::Result<Vec<u8>> {
-    Ok(body
-        .collect()
-        .await
-        .map_err(io::Error::other)?
-        .to_bytes()
-        .to_vec())
 }
 
 #[cfg(test)]
