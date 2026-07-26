@@ -49,6 +49,10 @@ pub struct EmbeddedHttpRequest {
 pub struct EmbeddedHttpResponse {
     pub status: u16,
     pub content_length: Option<u64>,
+    pub content_range: Option<String>,
+    pub accept_ranges: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
     pub body: EmbeddedHttpBody,
 }
 
@@ -84,7 +88,8 @@ impl EmbeddedOutbound {
         let mut outbounds = OutboundManager::load_plain_outbounds(vec![proxy]);
         let handler = outbounds.pop().ok_or_else(|| {
             Error::InvalidConfig(
-                "proxy entry uses a protocol that this clash-lib build does not support"
+                "proxy entry uses a protocol that this clash-lib build does not \
+                 support"
                     .to_owned(),
             )
         })?;
@@ -142,9 +147,23 @@ impl EmbeddedOutbound {
         let content_length = response_content_length(
             response.headers().get(http::header::CONTENT_LENGTH),
         );
+        let content_range = response_header_value(
+            response.headers().get(http::header::CONTENT_RANGE),
+        );
+        let accept_ranges = response_header_value(
+            response.headers().get(http::header::ACCEPT_RANGES),
+        );
+        let etag = response_header_value(response.headers().get(http::header::ETAG));
+        let last_modified = response_header_value(
+            response.headers().get(http::header::LAST_MODIFIED),
+        );
         Ok(EmbeddedHttpResponse {
             status,
             content_length,
+            content_range,
+            accept_ranges,
+            etag,
+            last_modified,
             body: EmbeddedHttpBody {
                 body: response.into_body(),
             },
@@ -191,6 +210,10 @@ fn response_content_length(value: Option<&http::HeaderValue>) -> Option<u64> {
     value?.to_str().ok()?.parse().ok()
 }
 
+fn response_header_value(value: Option<&http::HeaderValue>) -> Option<String> {
+    value?.to_str().ok().map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,5 +249,58 @@ type: direct
             .await
             .expect("connect");
         accept.await.expect("accept task");
+    }
+
+    #[tokio::test]
+    async fn embedded_outbound_exposes_only_resume_response_metadata() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let accept = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).await.expect("read request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Length: 4\r\nContent-Range: bytes 4-7/8\r\nAccept-Ranges: bytes\r\nETag: \"fixture-v1\"\r\nLast-Modified: Sun, 26 Jul 2026 12:00:00 GMT\r\nX-Secret: must-not-cross-boundary\r\nConnection: close\r\n\r\npart",
+                )
+                .await
+                .expect("write response");
+        });
+        let outbound = EmbeddedOutbound::from_clash_yaml_entry(
+            r#"
+name: direct-fixture
+type: direct
+"#,
+        )
+        .expect("outbound");
+
+        let response = outbound
+            .http_request(EmbeddedHttpRequest {
+                method: EmbeddedHttpMethod::Get,
+                url: format!("http://{address}/file?token=secret"),
+                headers: vec![EmbeddedHttpHeader {
+                    name: "Range".to_owned(),
+                    value: "bytes=4-".to_owned(),
+                }],
+                body: None,
+                timeout: Some(Duration::from_secs(5)),
+            })
+            .await
+            .expect("response");
+        accept.await.expect("accept task");
+
+        assert_eq!(response.status, 206);
+        assert_eq!(response.content_length, Some(4));
+        assert_eq!(response.content_range.as_deref(), Some("bytes 4-7/8"));
+        assert_eq!(response.accept_ranges.as_deref(), Some("bytes"));
+        assert_eq!(response.etag.as_deref(), Some("\"fixture-v1\""));
+        assert_eq!(
+            response.last_modified.as_deref(),
+            Some("Sun, 26 Jul 2026 12:00:00 GMT")
+        );
     }
 }
