@@ -29,6 +29,7 @@ pub struct EmbeddedOutbound {
 pub enum EmbeddedHttpMethod {
     Get,
     Post,
+    Delete,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +131,7 @@ impl EmbeddedOutbound {
             .method(match request.method {
                 EmbeddedHttpMethod::Get => http::Method::GET,
                 EmbeddedHttpMethod::Post => http::Method::POST,
+                EmbeddedHttpMethod::Delete => http::Method::DELETE,
             })
             .uri(&request.url);
         for header in request.headers {
